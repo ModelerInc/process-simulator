@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Business Process Simulator</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --surface: #ffffff;
+            --background: #f8fafc;
+            --border: #cbd5e1;
+            --text: #0f172a;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --warning: #eab308;
+            --info: #0ea5e9;
+            --node-bg: #e0f2fe;
+            --decision-bg: #fef9c3;
+            --edge-color: #94a3b8;
+            --grid-size: 20px;
+        }
+        * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+        body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: var(--background); color: var(--text); overflow: hidden; }
+        
+        /* Top Dashboard */
+        #dashboard { height: 60px; background: #1e293b; color: white; display: flex; align-items: center; justify-content: space-around; padding: 0 2rem; font-weight: 600; font-size: 1.1rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 20; }
+        .dash-metric { display: flex; flex-direction: column; align-items: center; }
+        .dash-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
+        .dash-value.danger { color: #f87171; }
+        .dash-value.warning { color: #fbbf24; }
+
+        /* Main Layout */
+        #main-container { display: flex; flex: 1; overflow: hidden; }
+        #sidebar { width: 350px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; padding: 1rem; box-shadow: 2px 0 5px rgba(0,0,0,0.05); z-index: 10; }
+        
+        /* Canvas with Dynamic Grid */
+        #canvas-wrapper { flex: 1; position: relative; overflow: hidden; background-image: radial-gradient(var(--border) 1px, transparent 1px); cursor: default; }
+        #canvas-content { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: 0 0; }
+        
+        /* Zoom Controls Overlay */
+        #zoom-controls { position: absolute; bottom: 1.5rem; right: 1.5rem; display: flex; gap: 0.25rem; background: var(--surface); padding: 0.35rem; border-radius: 6px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid var(--border); z-index: 20; }
+        #zoom-controls button { width: 32px; height: 32px; border: none; background: var(--surface); cursor: pointer; border-radius: 4px; font-weight: bold; color: var(--text); font-size: 1.1rem; }
+        #zoom-controls button:hover { background: var(--background); }
+        #zoom-controls .zoom-label { display: flex; align-items: center; justify-content: center; width: 50px; font-size: 0.8rem; font-weight: bold; }
+
+        /* Sidebar Components & Collapsible Logic */
+        .collapsible-header { font-size: 1.1rem; margin-top: 0; margin-bottom: 0.5rem; border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; transition: color 0.2s; }
+        .collapsible-header:hover { color: var(--primary); }
+        .toggle-icon { font-size: 0.8rem; transition: transform 0.2s; color: var(--edge-color); }
+        .panel-section.collapsed .toggle-icon { transform: rotate(-90deg); }
+        .panel-section.collapsed .collapsible-content { display: none; }
+        
+        h3 { font-size: 0.95rem; margin-top: 1rem; margin-bottom: 0.5rem; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 2px;}
+        .panel-section { margin-bottom: 1.5rem; }
+        .btn { display: block; width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; background: var(--primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; text-align: center; }
+        .btn:hover { opacity: 0.9; }
+        .btn.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+        .btn.warning { background: var(--warning); color: #854d0e; }
+        .btn.danger { background: var(--danger); }
+        .btn.success { background: var(--success); }
+        .btn.info { background: var(--info); }
+        .btn-group { display: flex; gap: 0.5rem; }
+        .btn-group .btn { margin-bottom: 0; }
+        
+        label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; margin-top: 0.5rem; cursor: help; }
+        .info-icon { color: var(--primary); font-size: 0.75rem; font-weight: normal; margin-left: 2px; }
+        input[type="text"], input[type="number"], input[type="range"] { width: 100%; padding: 0.4rem; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 0.5rem; }
+        .row { display: flex; gap: 0.5rem; }
+        .row > div { flex: 1; }
+        
+        /* Canvas Elements */
+        #svg-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+        #nodes-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        
+        /* Nodes */
+        .node { position: absolute; width: 140px; background: var(--node-bg); border: 2px solid var(--primary); border-radius: 8px; padding: 0.5rem; cursor: grab; user-select: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; z-index: 5; transition: border-color 0.2s, box-shadow 0.2s; }
+        .node.decision { background: var(--decision-bg); border-color: var(--warning); border-radius: 4px; transform: scale(1.05); }
+        .node:active { cursor: grabbing; box-shadow: 0 8px 12px rgba(0,0,0,0.15); }
+        .node.selected { box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); }
+        .node.decision.selected { box-shadow: 0 0 0 4px rgba(234, 179, 8, 0.4); }
+        .node.bottleneck { border-color: var(--danger); background: #fef2f2; animation: pulse 1s infinite; }
+        
+        .node-name { font-weight: bold; font-size: 0.9rem; text-align: center; margin-bottom: 0.25rem; word-break: break-all; pointer-events: none;}
+        .node-badge { background: var(--primary); color: white; font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; margin-top: 2px; pointer-events: none; text-align: center; width: 100%;}
+        .node.decision .node-badge { background: #ca8a04; }
+        .node-badge.queue { background: #f59e0b; }
+        .node-badge.dropped { background: var(--danger); animation: shake 0.5s; }
+        .node-cost { font-size: 0.7rem; color: #64748b; margin-top: 4px; font-family: monospace; }
+        
+        #mode-indicator { position: absolute; top: 1rem; right: 1rem; background: var(--surface); padding: 0.5rem 1rem; border-radius: 20px; border: 1px solid var(--border); font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 20; display: none; }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-3px); }
+            75% { transform: translateX(3px); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="dashboard">
+        <div class="dash-metric">
+            <span class="dash-label">Tick / Time</span>
+            <span class="dash-value" id="dash-tick">0</span>
+        </div>
+        <div class="dash-metric">
+            <span class="dash-label">Total Processed</span>
+            <span class="dash-value success" id="dash-processed">0</span>
+        </div>
+        <div class="dash-metric">
+            <span class="dash-label">Items In Queue</span>
+            <span class="dash-value warning" id="dash-queue">0</span>
+        </div>
+        <div class="dash-metric">
+            <span class="dash-label">Dropped Items</span>
+            <span class="dash-value danger" id="dash-dropped">0</span>
+        </div>
+        <div class="dash-metric">
+            <span class="dash-label">Total Running Cost</span>
+            <span class="dash-value" id="dash-cost">$0</span>
+        </div>
+    </div>
+
+    <div id="main-container">
+        <div id="sidebar">
+            
+            <div class="panel-section">
+                <h2 class="collapsible-header" onclick="app.toggleSection(this)">
+                    <span>🛠️ Build Tools</span><span class="toggle-icon">▼</span>
+                </h2>
+                <div class="collapsible-content">
+                    <div class="btn-group" style="margin-bottom: 0.5rem;">
+                        <button class="btn" onclick="app.addNode('task')">+ Task</button>
+                        <button class="btn warning" onclick="app.addNode('decision')">+ Decision</button>
+                    </div>
+                    <button class="btn secondary" id="btn-draw-edge" onclick="app.toggleDrawMode()">Draw Connection (Off)</button>
+                </div>
+            </div>
+
+            <div class="panel-section" id="config-panel" style="display: none;">
+                <h2 class="collapsible-header" onclick="app.toggleSection(this)">
+                    <span>⚙️ Node Configuration</span><span class="toggle-icon">▼</span>
+                </h2>
+                <div class="collapsible-content">
+                    <label title="The display name of the task or decision on the canvas.">Name <span class="info-icon">ⓘ</span></label>
+                    <input type="text" id="config-name" oninput="app.updateSelectedNode()">
+                    
+                    <div id="task-config-fields">
+                        <div class="row">
+                            <div>
+                                <label title="How many simulation ticks it takes for this task to process a single item.">Time (Ticks) <span class="info-icon">ⓘ</span></label>
+                                <input type="number" id="config-time" min="1" oninput="app.updateSelectedNode()">
+                            </div>
+                            <div>
+                                <label title="The maximum number of items this task can actively process at the exact same time.">Capacity <span class="info-icon">ⓘ</span></label>
+                                <input type="number" id="config-cap" min="1" oninput="app.updateSelectedNode()">
+                            </div>
+                        </div>
+                        <label title="Maximum number of items allowed to wait in the queue. Set to 0 for unlimited. Items arriving when the queue is full will be dropped.">Max Queue Limit (0 = Unlim) <span class="info-icon">ⓘ</span></label>
+                        <input type="number" id="config-max-queue" min="0" oninput="app.updateSelectedNode()">
+                        
+                        <h3>Financials</h3>
+                        <div class="row">
+                            <div>
+                                <label title="Operating cost added to the system for every tick this task is actively processing items.">Cost / Tick ($) <span class="info-icon">ⓘ</span></label>
+                                <input type="number" id="config-cost" min="0" oninput="app.updateSelectedNode()">
+                            </div>
+                            <div>
+                                <label title="The financial penalty incurred every single time an item is dropped because the queue is full.">Drop Penalty ($) <span class="info-icon">ⓘ</span></label>
+                                <input type="number" id="config-penalty" min="0" oninput="app.updateSelectedNode()">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="routing-config"></div>
+
+                    <div style="display:flex; gap: 0.5rem; margin-top: 1rem;">
+                        <button class="btn danger" onclick="app.deleteSelectedNode()">Delete Node</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h2 class="collapsible-header" onclick="app.toggleSection(this)">
+                    <span>▶️ Simulation Engine</span><span class="toggle-icon">▼</span>
+                </h2>
+                <div class="collapsible-content" style="background: #f1f5f9; padding: 10px; border: 1px solid var(--border); border-radius: 6px; margin-top: 0.5rem;">
+                    <label title="The simulation will inject a random number of items between your Min and Max into all starting nodes every single tick.">Variable Input Rate (Items / Tick) <span class="info-icon">ⓘ</span></label>
+                    <div class="row">
+                        <div><label title="Minimum items to inject per tick." style="font-size:0.7rem;font-weight:normal;">Min <span class="info-icon">ⓘ</span></label><input type="number" id="sim-input-min" value="3" min="0"></div>
+                        <div><label title="Maximum items to inject per tick." style="font-size:0.7rem;font-weight:normal;">Max <span class="info-icon">ⓘ</span></label><input type="number" id="sim-input-max" value="7" min="0"></div>
+                    </div>
+                    
+                    <label title="Controls how fast the simulation visually plays. Lower milliseconds (ms) means faster simulation.">Playback Speed (<span id="speed-label">500</span>ms / tick) <span class="info-icon">ⓘ</span></label>
+                    <input type="range" id="sim-speed" min="50" max="2000" value="500" step="50" oninput="app.updateSpeed()">
+                    
+                    <div class="btn-group" style="margin-top: 10px;">
+                        <button class="btn success" id="btn-play" onclick="app.startSim()">Play</button>
+                        <button class="btn info" onclick="app.stepSim()" title="Advance the simulation manually by one single tick.">Step ⏭</button>
+                        <button class="btn danger" onclick="app.resetSim()">Reset</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h2 class="collapsible-header" onclick="app.toggleSection(this)">
+                    <span>💾 Data & Files</span><span class="toggle-icon">▼</span>
+                </h2>
+                <div class="collapsible-content">
+                    <button class="btn" onclick="app.exportReport()">⬇ Export Run Report (CSV)</button>
+                    <div class="btn-group" style="margin-top: 0.5rem;">
+                        <button class="btn secondary" onclick="app.saveDesign()">Save Map</button>
+                        <button class="btn secondary" onclick="document.getElementById('file-upload').click()">Load Map</button>
+                        <input type="file" id="file-upload" accept=".json" style="display: none;" onchange="app.loadDesign(event)">
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div id="canvas-wrapper">
+            <div id="canvas-content">
+                <svg id="svg-canvas"></svg>
+                <div id="nodes-container"></div>
+            </div>
+            
+            <div id="mode-indicator">Drawing Mode Active - Click two nodes to connect</div>
+            <div id="zoom-controls">
+                <button onclick="app.applyZoom(1.2)" title="Zoom In">+</button>
+                <div class="zoom-label" id="zoom-readout" onclick="app.resetView()" style="cursor:pointer;" title="Reset View">100%</div>
+                <button onclick="app.applyZoom(0.8)" title="Zoom Out">-</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const app = {
+            nodes: [],
+            edges: [],
+            selectedNodeId: null,
+            drawMode: false,
+            drawStartNode: null,
+            gridSize: 20, 
+            
+            panZoom: { x: 0, y: 0, scale: 1, isPanning: false, startX: 0, startY: 0, initialX: 0, initialY: 0 },
+            
+            simState: { 
+                running: false, 
+                tick: 0, 
+                interval: null, 
+                speedMs: 500,
+                global: { processed: 0, dropped: 0, cost: 0, queued: 0 }
+            },
+            idCounter: 1,
+
+            init() {
+                this.wrapper = document.getElementById('canvas-wrapper');
+                this.canvasContent = document.getElementById('canvas-content');
+                this.container = document.getElementById('nodes-container');
+                this.svg = document.getElementById('svg-canvas');
+                
+                this.wrapper.addEventListener('mousedown', this.handleMouseDown.bind(this));
+                document.addEventListener('mousemove', this.handleMouseMove.bind(this));
+                document.addEventListener('mouseup', this.handleMouseUp.bind(this));
+                
+                this.wrapper.addEventListener('wheel', this.handleWheel.bind(this), {passive: false});
+                
+                const saved = localStorage.getItem('bps_adv_autosave');
+                if (saved) {
+                    this.importData(JSON.parse(saved));
+                } else {
+                    this.addNode('task', 140, 140, "Start Task");
+                }
+                
+                this.updateCanvasTransform();
+                this.render();
+                this.updateDashboard();
+            },
+
+            toggleSection(headerElement) {
+                const section = headerElement.closest('.panel-section');
+                section.classList.toggle('collapsed');
+            },
+
+            saveData() {
+                const data = { nodes: this.nodes, edges: this.edges, idCounter: this.idCounter };
+                localStorage.setItem('bps_adv_autosave', JSON.stringify(data));
+                return data;
+            },
+            
+            importData(data) {
+                this.resetSim();
+                this.resetView();
+                this.nodes = data.nodes || [];
+                this.edges = data.edges || [];
+                this.idCounter = data.idCounter || 1;
+                this.nodes.forEach(n => {
+                    this.resetNodeStats(n);
+                    if (!n.routing) n.routing = {}; 
+                    if (n.maxQueueLimit === undefined) n.maxQueueLimit = 0;
+                    if (n.costPerTick === undefined) n.costPerTick = n.type === 'decision' ? 0 : 5;
+                    if (n.dropPenalty === undefined) n.dropPenalty = n.type === 'decision' ? 0 : 50;
+                });
+                this.selectedNodeId = null;
+                this.render();
+                this.updateConfigPanel();
+            },
+
+            addNode(type = 'task', startX = null, startY = null, name = null) {
+                let x, y;
+                if (startX !== null && startY !== null) {
+                    x = startX;
+                    y = startY;
+                } else {
+                    const rect = this.wrapper.getBoundingClientRect();
+                    const centerX = (rect.width / 2 - this.panZoom.x) / this.panZoom.scale;
+                    const centerY = (rect.height / 2 - this.panZoom.y) / this.panZoom.scale;
+                    x = centerX + (Math.random() * 40 - 20);
+                    y = centerY + (Math.random() * 40 - 20);
+                }
+
+                const isDecision = type === 'decision';
+                const node = {
+                    id: this.idCounter++,
+                    type: type,
+                    x: Math.round(x / this.gridSize) * this.gridSize, 
+                    y: Math.round(y / this.gridSize) * this.gridSize,
+                    name: name || (isDecision ? `Decision ${this.idCounter - 1}` : `Task ${this.idCounter - 1}`),
+                    processTime: isDecision ? 1 : 3, 
+                    capacity: isDecision ? 9999 : 5, 
+                    maxQueueLimit: 0,
+                    costPerTick: isDecision ? 0 : 5,   
+                    dropPenalty: isDecision ? 0 : 50,  
+                    routing: {}, 
+                    queue: 0,
+                    processing: [],
+                    stats: { totalProcessed: 0, maxQueue: 0, totalWaitTime: 0, activeTicks: 0, droppedItems: 0, accumulatedCost: 0 }
+                };
+                this.nodes.push(node);
+                this.saveData();
+                this.render();
+            },
+
+            deleteSelectedNode() {
+                if (!this.selectedNodeId) return;
+                this.nodes = this.nodes.filter(n => n.id !== this.selectedNodeId);
+                this.edges = this.edges.filter(e => e.from !== this.selectedNodeId && e.to !== this.selectedNodeId);
+                this.nodes.forEach(n => { if (n.routing && n.routing[this.selectedNodeId]) delete n.routing[this.selectedNodeId]; });
+                this.selectedNodeId = null;
+                this.saveData();
+                this.render();
+                this.updateConfigPanel();
+            },
+
+            handleWheel(e) {
+                if (e.target.closest('#sidebar')) return; 
+                e.preventDefault();
+                const scaleFactor = e.deltaY < 0 ? 1.1 : 0.9;
+                this.applyZoom(scaleFactor, e.clientX, e.clientY);
+            },
+            
+            applyZoom(scaleFactor, mouseX = null, mouseY = null) {
+                const rect = this.wrapper.getBoundingClientRect();
+                const mx = mouseX ? mouseX - rect.left : rect.width / 2;
+                const my = mouseY ? mouseY - rect.top : rect.height / 2;
+                
+                let newScale = this.panZoom.scale * scaleFactor;
+                newScale = Math.max(0.2, Math.min(newScale, 3)); 
+                
+                this.panZoom.x = mx - (mx - this.panZoom.x) * (newScale / this.panZoom.scale);
+                this.panZoom.y = my - (my - this.panZoom.y) * (newScale / this.panZoom.scale);
+                this.panZoom.scale = newScale;
+                
+                document.getElementById('zoom-readout').innerText = `${Math.round(this.panZoom.scale * 100)}%`;
+                this.updateCanvasTransform();
+            },
+            
+            resetView() {
+                this.panZoom = { x: 0, y: 0, scale: 1, isPanning: false, startX: 0, startY: 0, initialX: 0, initialY: 0 };
+                document.getElementById('zoom-readout').innerText = `100%`;
+                this.updateCanvasTransform();
+            },
+            
+            updateCanvasTransform() {
+                this.canvasContent.style.transform = `translate(${this.panZoom.x}px, ${this.panZoom.y}px) scale(${this.panZoom.scale})`;
+                this.wrapper.style.backgroundPosition = `${this.panZoom.x}px ${this.panZoom.y}px`;
+                this.wrapper.style.backgroundSize = `${this.gridSize * this.panZoom.scale}px ${this.gridSize * this.panZoom.scale}px`;
+            },
+
+            handleMouseDown(e) {
+                const nodeEl = e.target.closest('.node');
+                
+                if (!nodeEl) {
+                    if (!this.drawMode && e.target.closest('#canvas-wrapper')) {
+                        this.panZoom.isPanning = true;
+                        this.panZoom.startX = e.clientX;
+                        this.panZoom.startY = e.clientY;
+                        this.panZoom.initialX = this.panZoom.x;
+                        this.panZoom.initialY = this.panZoom.y;
+                        this.wrapper.style.cursor = 'grabbing';
+                    }
+                    this.selectedNodeId = null;
+                    this.updateConfigPanel();
+                    this.renderNodes(); 
+                    return;
+                }
+                
+                const id = parseInt(nodeEl.dataset.id);
+                
+                if (this.drawMode) {
+                    if (!this.drawStartNode) {
+                        this.drawStartNode = id;
+                        nodeEl.style.borderColor = '#10b981';
+                    } else {
+                        if (this.drawStartNode !== id && !this.edges.find(edge => edge.from === this.drawStartNode && edge.to === id)) {
+                            this.edges.push({ from: this.drawStartNode, to: id });
+                        }
+                        this.drawStartNode = null;
+                        this.toggleDrawMode();
+                        this.saveData();
+                        this.render();
+                        this.updateConfigPanel(); 
+                    }
+                    return;
+                }
+
+                this.selectedNodeId = id;
+                this.dragNode = this.nodes.find(n => n.id === id);
+                
+                const rect = this.wrapper.getBoundingClientRect();
+                const scaledMouseX = (e.clientX - rect.left - this.panZoom.x) / this.panZoom.scale;
+                const scaledMouseY = (e.clientY - rect.top - this.panZoom.y) / this.panZoom.scale;
+                
+                this.dragOffsetX = scaledMouseX - this.dragNode.x;
+                this.dragOffsetY = scaledMouseY - this.dragNode.y;
+                
+                this.updateConfigPanel();
+                this.renderNodes();
+                
+                const configPanel = document.getElementById('config-panel');
+                if (configPanel.classList.contains('collapsed')) configPanel.classList.remove('collapsed');
+            },
+            
+            handleMouseMove(e) {
+                if (this.panZoom.isPanning) {
+                    const dx = e.clientX - this.panZoom.startX;
+                    const dy = e.clientY - this.panZoom.startY;
+                    this.panZoom.x = this.panZoom.initialX + dx;
+                    this.panZoom.y = this.panZoom.initialY + dy;
+                    this.updateCanvasTransform();
+                    return;
+                }
+
+                if (this.dragNode && !this.drawMode) {
+                    const rect = this.wrapper.getBoundingClientRect();
+                    const scaledMouseX = (e.clientX - rect.left - this.panZoom.x) / this.panZoom.scale;
+                    const scaledMouseY = (e.clientY - rect.top - this.panZoom.y) / this.panZoom.scale;
+                    
+                    let rawX = scaledMouseX - this.dragOffsetX;
+                    let rawY = scaledMouseY - this.dragOffsetY;
+                    
+                    this.dragNode.x = Math.round(rawX / this.gridSize) * this.gridSize;
+                    this.dragNode.y = Math.round(rawY / this.gridSize) * this.gridSize;
+                    
+                    this.renderEdges();
+                    this.renderNodePositions();
+                }
+            },
+            
+            handleMouseUp() {
+                if (this.panZoom.isPanning) {
+                    this.panZoom.isPanning = false;
+                    this.wrapper.style.cursor = 'default';
+                }
+                if (this.dragNode) {
+                    this.dragNode = null;
+                    this.saveData();
+                }
+            },
+            
+            toggleDrawMode() {
+                this.drawMode = !this.drawMode;
+                this.drawStartNode = null;
+                const btn = document.getElementById('btn-draw-edge');
+                btn.textContent = `Draw Connection (${this.drawMode ? 'On' : 'Off'})`;
+                btn.className = `btn ${this.drawMode ? 'success' : 'secondary'}`;
+                document.getElementById('mode-indicator').style.display = this.drawMode ? 'block' : 'none';
+                this.renderNodes();
+            },
+
+            updateConfigPanel() {
+                const panel = document.getElementById('config-panel');
+                if (!this.selectedNodeId) {
+                    panel.style.display = 'block';
+                    panel.querySelector('.collapsible-content').innerHTML = '<p style="color:var(--edge-color); font-size:0.85rem; text-align:center;">Click a node to configure it.</p>';
+                    return;
+                }
+                
+                const node = this.nodes.find(n => n.id === this.selectedNodeId);
+                const isDecision = node.type === 'decision';
+                
+                let html = `
+                    <label title="The display name of the task or decision on the canvas.">Name <span class="info-icon">ⓘ</span></label>
+                    <input type="text" id="config-name" value="${node.name}" oninput="app.updateSelectedNode()">
+                `;
+                
+                if (!isDecision) {
+                    html += `
+                        <div class="row">
+                            <div><label title="Ticks to process a single item.">Time (Ticks) <span class="info-icon">ⓘ</span></label><input type="number" id="config-time" min="1" value="${node.processTime}" oninput="app.updateSelectedNode()"></div>
+                            <div><label title="Concurrent capacity.">Capacity <span class="info-icon">ⓘ</span></label><input type="number" id="config-cap" min="1" value="${node.capacity}" oninput="app.updateSelectedNode()"></div>
+                        </div>
+                        <label title="0 for unlimited. Items dropped when queue full.">Max Queue Limit <span class="info-icon">ⓘ</span></label>
+                        <input type="number" id="config-max-queue" min="0" value="${node.maxQueueLimit}" oninput="app.updateSelectedNode()">
+                        <h3>Financials</h3>
+                        <div class="row">
+                            <div><label title="Cost per active tick.">Cost / Tick ($) <span class="info-icon">ⓘ</span></label><input type="number" id="config-cost" min="0" value="${node.costPerTick}" oninput="app.updateSelectedNode()"></div>
+                            <div><label title="Cost penalty per dropped item.">Drop Penalty ($) <span class="info-icon">ⓘ</span></label><input type="number" id="config-penalty" min="0" value="${node.dropPenalty}" oninput="app.updateSelectedNode()"></div>
+                        </div>
+                    `;
+                } else {
+                    const outEdges = this.edges.filter(e => e.from === node.id);
+                    if (outEdges.length > 0) {
+                        html += `<h3>Routing Probabilities (%)</h3>`;
+                        outEdges.forEach(edge => {
+                            const targetNode = this.nodes.find(n => n.id === edge.to);
+                            if (node.routing[edge.to] === undefined) node.routing[edge.to] = Math.floor(100 / outEdges.length);
+                            html += `
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
+                                    <label title="Ensure total is ~100%." style="margin:0; width: 60%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">To: ${targetNode.name} <span class="info-icon">ⓘ</span></label>
+                                    <input type="number" min="0" max="100" style="width: 35%; margin:0;" value="${node.routing[edge.to]}" onchange="app.updateRouting(${node.id}, ${edge.to}, this.value)">
+                                </div>
+                            `;
+                        });
+                    } else {
+                        html += '<p style="font-size:0.8rem;color:var(--edge-color);">Draw connections from this node to set routing conditions.</p>';
+                    }
+                }
+                
+                html += `<div style="display:flex; gap: 0.5rem; margin-top: 1rem;"><button class="btn danger" onclick="app.deleteSelectedNode()">Delete Node</button></div>`;
+                panel.querySelector('.collapsible-content').innerHTML = html;
+            },
+            
+            updateSelectedNode() {
+                if (!this.selectedNodeId) return;
+                const node = this.nodes.find(n => n.id === this.selectedNodeId);
+                node.name = document.getElementById('config-name').value;
+                if (node.type !== 'decision') {
+                    node.processTime = parseInt(document.getElementById('config-time').value) || 1;
+                    node.capacity = parseInt(document.getElementById('config-cap').value) || 1;
+                    node.maxQueueLimit = parseInt(document.getElementById('config-max-queue').value) || 0;
+                    node.costPerTick = parseInt(document.getElementById('config-cost').value) || 0;
+                    node.dropPenalty = parseInt(document.getElementById('config-penalty').value) || 0;
+                }
+                this.saveData();
+                this.renderNodes();
+            },
+            
+            updateRouting(nodeId, targetNodeId, value) {
+                const node = this.nodes.find(n => n.id === nodeId);
+                if (node) { node.routing[targetNodeId] = parseInt(value) || 0; this.saveData(); }
+            },
+            
+            render() {
+                this.renderNodes();
+                this.renderEdges();
+            },
+            renderNodes() {
+                this.container.innerHTML = '';
+                this.nodes.forEach(node => {
+                    const el = document.createElement('div');
+                    el.className = `node ${node.type} ${this.selectedNodeId === node.id ? 'selected' : ''}`;
+                    
+                    if (node.type === 'task' && node.queue > node.capacity * 2) { el.classList.add('bottleneck'); }
+                    
+                    el.dataset.id = node.id;
+                    el.style.left = node.x + 'px';
+                    el.style.top = node.y + 'px';
+                    
+                    let badgeLabel = node.type === 'decision' ? 'Decision' : `Proc: ${node.processing.length}/${node.capacity}`;
+                    
+                    let queueHtml = '';
+                    if (node.type === 'task') {
+                        let queueLabel = node.maxQueueLimit > 0 ? `Queue: ${node.queue}/${node.maxQueueLimit}` : `Queue: ${node.queue}`;
+                        queueHtml = `<div class="node-badge queue">${queueLabel}</div>`;
+                    }
+                    
+                    let droppedHtml = node.stats.droppedItems > 0 ? `<div class="node-badge dropped">Dropped: ${node.stats.droppedItems}</div>` : '';
+                    let costHtml = node.stats.accumulatedCost > 0 ? `<div class="node-cost">$${node.stats.accumulatedCost.toLocaleString()}</div>` : '';
+
+                    el.innerHTML = `
+                        <div class="node-name">${node.name}</div>
+                        <div class="node-badge">${badgeLabel}</div>
+                        ${queueHtml}
+                        ${droppedHtml}
+                        ${costHtml}
+                    `;
+                    this.container.appendChild(el);
+                });
+            },
+            renderNodePositions() {
+                this.nodes.forEach(node => {
+                    const el = this.container.querySelector(`.node[data-id="${node.id}"]`);
+                    if (el) { el.style.left = node.x + 'px'; el.style.top = node.y + 'px'; }
+                });
+            },
+            renderEdges() {
+                let svgHtml = '';
+                this.edges.forEach(edge => {
+                    const n1 = this.nodes.find(n => n.id === edge.from);
+                    const n2 = this.nodes.find(n => n.id === edge.to);
+                    if (!n1 || !n2) return;
+                    
+                    const x1 = n1.x + 70, y1 = n1.y + 35;
+                    const x2 = n2.x + 70, y2 = n2.y + 35;
+                    
+                    svgHtml += `
+                        <defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="${this.simState.running ? 'var(--primary)' : 'var(--edge-color)'}" /></marker></defs>
+                        <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${this.simState.running ? 'var(--primary)' : 'var(--edge-color)'}" stroke-width="2" marker-end="url(#arrowhead)" ${this.simState.running ? 'stroke-dasharray="5,5" class="flowing-edge"' : ''}/>
+                    `;
+                });
+                
+                if (this.simState.running) {
+                    let animDur = Math.max(0.2, this.simState.speedMs / 500);
+                    svgHtml += `<style>.flowing-edge { animation: flow ${animDur}s linear infinite; } @keyframes flow { to { stroke-dashoffset: -10; } }</style>`;
+                }
+                this.svg.innerHTML = svgHtml;
+            },
+
+            updateDashboard() {
+                document.getElementById('dash-tick').innerText = this.simState.tick;
+                document.getElementById('dash-processed').innerText = this.simState.global.processed.toLocaleString();
+                document.getElementById('dash-queue').innerText = this.simState.global.queued.toLocaleString();
+                document.getElementById('dash-dropped').innerText = this.simState.global.dropped.toLocaleString();
+                document.getElementById('dash-cost').innerText = '$' + this.simState.global.cost.toLocaleString();
+            },
+            resetNodeStats(node) {
+                node.queue = 0;
+                node.processing = [];
+                node.stats = { totalProcessed: 0, maxQueue: 0, totalWaitTime: 0, activeTicks: 0, droppedItems: 0, accumulatedCost: 0 };
+            },
+            updateSpeed() {
+                this.simState.speedMs = document.getElementById('sim-speed').value;
+                document.getElementById('speed-label').innerText = this.simState.speedMs;
+                if (this.simState.running) {
+                    clearInterval(this.simState.interval);
+                    this.simState.interval = setInterval(() => this.tick(), this.simState.speedMs);
+                    this.renderEdges();
+                }
+            },
+            startSim() {
+                if (this.simState.running) {
+                    this.pauseSim();
+                    return;
+                }
+                this.simState.running = true;
+                document.getElementById('btn-play').innerText = "Pause";
+                document.getElementById('btn-play').className = "btn secondary";
+                this.simState.interval = setInterval(() => this.tick(), this.simState.speedMs);
+                this.renderEdges();
+            },
+            pauseSim() {
+                this.simState.running = false;
+                document.getElementById('btn-play').innerText = "Play";
+                document.getElementById('btn-play').className = "btn success";
+                clearInterval(this.simState.interval);
+                this.renderEdges();
+            },
+            stepSim() {
+                this.pauseSim();
+                this.tick();
+            },
+            resetSim() {
+                this.pauseSim();
+                this.simState.tick = 0;
+                this.simState.global = { processed: 0, dropped: 0, cost: 0, queued: 0 };
+                this.nodes.forEach(n => this.resetNodeStats(n));
+                this.updateDashboard();
+                this.render();
+            },
+            
+            tick() {
+                this.simState.tick++;
+                
+                const minIn = parseInt(document.getElementById('sim-input-min').value) || 0;
+                const maxIn = parseInt(document.getElementById('sim-input-max').value) || 0;
+                const injectAmount = Math.floor(Math.random() * (Math.max(minIn, maxIn) - Math.min(minIn, maxIn) + 1)) + Math.min(minIn, maxIn);
+
+                const startNodes = this.nodes.filter(n => !this.edges.some(e => e.to === n.id));
+                startNodes.forEach(n => { 
+                    for(let i=0; i < injectAmount; i++) {
+                        if (n.maxQueueLimit > 0 && n.queue >= n.maxQueueLimit) {
+                            n.stats.droppedItems++;
+                            this.simState.global.dropped++;
+                            let penalty = n.dropPenalty || 0;
+                            n.stats.accumulatedCost += penalty;
+                            this.simState.global.cost += penalty;
+                        } else {
+                            n.queue++;
+                        }
+                    }
+                });
+
+                this.nodes.forEach(node => {
+                    if (node.queue > node.stats.maxQueue) node.stats.maxQueue = node.queue;
+                    node.stats.totalWaitTime += node.queue;
+                    
+                    if (node.processing.length > 0) {
+                        node.stats.activeTicks++;
+                        let opCost = node.costPerTick || 0;
+                        node.stats.accumulatedCost += opCost;
+                        this.simState.global.cost += opCost;
+                    }
+
+                    node.processing.forEach(item => item.timeLeft--);
+                    
+                    const finished = node.processing.filter(item => item.timeLeft <= 0);
+                    node.processing = node.processing.filter(item => item.timeLeft > 0);
+                    
+                    if (finished.length > 0) {
+                        node.stats.totalProcessed += finished.length;
+                        
+                        const outEdges = this.edges.filter(e => e.from === node.id);
+                        if (outEdges.length === 0) {
+                            this.simState.global.processed += finished.length;
+                        } else {
+                            finished.forEach(item => {
+                                let targetEdge;
+                                if (node.type === 'decision') {
+                                    const rand = Math.random() * 100;
+                                    let accum = 0;
+                                    for (let edge of outEdges) {
+                                        const prob = node.routing[edge.to] !== undefined ? node.routing[edge.to] : (100 / outEdges.length);
+                                        accum += prob;
+                                        if (rand <= accum) { targetEdge = edge; break; }
+                                    }
+                                    if (!targetEdge) targetEdge = outEdges[outEdges.length - 1]; 
+                                } else {
+                                    targetEdge = outEdges[Math.floor(Math.random() * outEdges.length)];
+                                }
+
+                                const targetNode = this.nodes.find(n => n.id === targetEdge.to);
+                                if(targetNode) {
+                                    if (targetNode.maxQueueLimit > 0 && targetNode.queue >= targetNode.maxQueueLimit) {
+                                        targetNode.stats.droppedItems++;
+                                        this.simState.global.dropped++;
+                                        let penalty = targetNode.dropPenalty || 0;
+                                        targetNode.stats.accumulatedCost += penalty;
+                                        this.simState.global.cost += penalty;
+                                    } else {
+                                        targetNode.queue++;
+                                    }
+                                }
+                            });
+                        }
+                    }
+
+                    while (node.queue > 0 && node.processing.length < node.capacity) {
+                        node.queue--;
+                        node.processing.push({ timeLeft: node.processTime });
+                    }
+                });
+
+                // Calculate total queued at the very end to ensure accuracy
+                let totalQueued = 0;
+                this.nodes.forEach(n => { totalQueued += n.queue; });
+                this.simState.global.queued = totalQueued;
+
+                this.updateDashboard();
+                this.renderNodes();
+            },
+
+            saveDesign() {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(this.saveData(), null, 2));
+                const dlAnchorElem = document.createElement('a');
+                dlAnchorElem.setAttribute("href", dataStr);
+                dlAnchorElem.setAttribute("download", "process_design.json");
+                document.body.appendChild(dlAnchorElem);
+                dlAnchorElem.click();
+                document.body.removeChild(dlAnchorElem);
+            },
+            loadDesign(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        this.importData(JSON.parse(e.target.result));
+                        this.saveData();
+                    } catch (err) { alert("Invalid JSON file"); }
+                };
+                reader.readAsText(file);
+                event.target.value = '';
+            },
+            exportReport() {
+                let csvContent = "data:text/csv;charset=utf-8,";
+                csvContent += "Task Name,Type,Total Processed,Dropped Items,Max Queue Size,Avg Wait Time (Ticks),Utilization Rate (%),Accumulated Cost ($)\n";
+                
+                this.nodes.forEach(n => {
+                    const avgWait = n.stats.totalProcessed ? (n.stats.totalWaitTime / n.stats.totalProcessed).toFixed(2) : 0;
+                    const utilRate = this.simState.tick ? ((n.stats.activeTicks / this.simState.tick) * 100).toFixed(1) : 0;
+                    csvContent += `"${n.name}",${n.type},${n.stats.totalProcessed},${n.stats.droppedItems},${n.stats.maxQueue},${avgWait},${utilRate}%,${n.stats.accumulatedCost}\n`;
+                });
+                csvContent += `\nSYSTEM TOTALS,,,${this.simState.global.dropped},,,,$${this.simState.global.cost}\n`;
+
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", `simulation_report_tick_${this.simState.tick}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        };
+
+        window.onload = () => app.init();
+    </script>
+</body>
+</html>
